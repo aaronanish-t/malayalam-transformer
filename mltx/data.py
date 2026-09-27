@@ -17,10 +17,11 @@ from pathlib import Path
 
 import numpy as np
 
+from .orthography import MALAYALAM  # the Malayalam Unicode block
 from .tokenizer import CharTokenizer, normalize
 
-MALAYALAM = re.compile(r"[ഀ-ൿ]")
-WS = re.compile(r"[ \t ]+")
+TAB, NBSP = chr(0x09), chr(0x00A0)
+WS = re.compile("[ " + TAB + NBSP + "]+")  # runs of space, tab, no-break space
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 

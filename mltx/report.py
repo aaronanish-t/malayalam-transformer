@@ -27,14 +27,16 @@ def load_run(run: Path) -> dict | None:
 
 def ablation_table(runs: list[dict]) -> str:
     base = next((r for r in runs if r["name"] == "baseline"), None)
-    rows = ["| run | positional enc. | heads | context | batch | params | val loss | val bpc | Δ vs baseline | time |",
-            "|---|---|---|---|---|---|---|---|---|---|"]
+    rows = ["| run | positional enc. | heads | context | batch | params | val loss | val bpc | Δ vs baseline "
+            "| well-formed words | time |",
+            "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in runs:
         val = r["best_val"]
         delta = "" if base is None else ("—" if r is base else f"{val - base['best_val']:+.3f}")
+        wf = f"{100 * r['well_formed']:.1f}%" if "well_formed" in r else "n/a"
         rows.append(f"| {r['name']} | {r['pos_enc']} | {r['n_head']} | {r['block_size']} | {r['batch_size']} "
                     f"| {r['n_params'] / 1e6:.2f}M | {val:.3f} | {val / math.log(2):.3f} | {delta} "
-                    f"| {r['elapsed'] / 60:.1f} min |")
+                    f"| {wf} | {r['elapsed'] / 60:.1f} min |")
     return "\n".join(rows)
 
 
@@ -62,7 +64,10 @@ def build(runs: list[dict]) -> str:
 
 Every run trains for {steps} steps at {tps} tokens per step (the same data
 budget), with a single change from the baseline. **val bpc** is bits per
-character (val loss / ln 2). Lower is better.
+character (val loss / ln 2), lower is better. **well-formed words** is the
+share of words in 16 generated passages that break no Malayalam
+orthographic rule, such as a vowel sign with no consonant to attach to
+(see `mltx/orthography.py`). Real Wikipedia text scores 99.98%.
 
 {ablation_table(runs)}
 

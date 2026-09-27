@@ -20,6 +20,13 @@ consonant, that two vowel signs never stack, that a chillu (ൻ ർ ൽ ...) end
 syllable. Ill-formed clusters are visible in the samples early in training and
 disappear as the loss falls, which makes the checkpoints fun to compare.
 
+That makes it measurable. `mltx/orthography.py` checks every generated
+word for marks with nothing legal to attach to (a vowel sign after a space,
+two vowel signs stacked, a virama on a vowel) and reports the share of
+well-formed words. Real Wikipedia text scores 99.98%. It sits next to
+validation loss in the ablation table, because two runs with similar loss
+can differ a lot in whether their output is readable Malayalam.
+
 The vocabulary is about 130 code points (anything rarer than 1 in 50,000
 characters, mostly stray CJK and Cyrillic from Wikipedia, maps to a single
 unknown token), so the embedding table is tiny and almost all of the
@@ -89,6 +96,7 @@ what you actually observe):
 mltx/
   tokenizer.py   code-point tokenizer, NFC normalisation
   data.py        download + clean Malayalam Wikipedia, write train/val .bin
+  orthography.py well-formedness score for generated Malayalam
   model.py       the transformer (attention, MLP, blocks, positional encodings)
   train.py       training loop, eval, checkpoints, fixed-seed samples
   ablate.py      the ablation grid

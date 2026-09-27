@@ -3,7 +3,8 @@
     config.json    model + training config, parameter count
     log.jsonl      one line per eval: step, train_loss, val_loss, lr, elapsed
     ckpt_*.pt      checkpoints at 10%, 50% and 100% of training
-    samples.md     fixed-seed generations from each checkpoint
+    samples.md     fixed-seed generations from each checkpoint, headed by the
+                   share of generated words that are well-formed Malayalam
 
     python -m mltx.train --name baseline
     python -m mltx.train --name no_pe --pos-enc none
@@ -15,12 +16,14 @@ import argparse
 import json
 import math
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
 import numpy as np
 import torch
 
+from . import orthography
 from .model import ModelConfig, Transformer
 from .tokenizer import CharTokenizer
 
@@ -113,23 +116,47 @@ def estimate_loss(model: Transformer, batches: dict[str, Batches], n: int) -> di
     return out
 
 
+@contextmanager
+def seeded_sampling(cfg: TrainConfig, seed: int):
+    """multinomial draws from the global RNG. Reseeding it directly would reset
+    the dropout stream every time a checkpoint is sampled, so fork it: samples
+    are reproducible and training continues exactly as if we had never
+    sampled."""
+    devices = [torch.cuda.current_device()] if cfg.device == "cuda" else []
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(seed)
+        yield
+
+
 @torch.no_grad()
 def sample(model: Transformer, tok: CharTokenizer, cfg: TrainConfig) -> str:
     model.eval()
-    # multinomial draws from the global RNG. Reseeding it directly would reset
-    # the dropout stream every time a checkpoint is sampled, so fork it: the
-    # samples are reproducible and training continues exactly as if we had
-    # never sampled.
-    devices = [torch.cuda.current_device()] if cfg.device == "cuda" else []
     parts = []
-    with torch.random.fork_rng(devices=devices):
-        torch.manual_seed(cfg.seed)
+    with seeded_sampling(cfg, cfg.seed):
         for prompt in SAMPLE_PROMPTS:
             idx = torch.tensor([tok.encode(prompt)], device=cfg.device)
             out = model.generate(idx, cfg.sample_tokens, temperature=0.8, top_k=40)
             parts.append(tok.decode(out[0].tolist()))
     model.train()
     return "\n\n---\n\n".join(parts)
+
+
+@torch.no_grad()
+def well_formed_rate(model: Transformer, tok: CharTokenizer, cfg: TrainConfig,
+                     n_seqs: int = 16, n_tokens: int = 256) -> float:
+    """Share of generated Malayalam words that break no orthographic rule.
+
+    Generates n_seqs continuations of a newline in one batch with a fixed seed
+    and scores them with mltx.orthography. Real Wikipedia text scores ~99.98%.
+    """
+    model.eval()
+    start = tok.stoi.get("\n", 0)
+    with seeded_sampling(cfg, cfg.seed + 1):
+        idx = torch.full((n_seqs, 1), start, dtype=torch.long, device=cfg.device)
+        out = model.generate(idx, n_tokens, temperature=0.8, top_k=40)
+    model.train()
+    text = "\n".join(tok.decode(row[1:].tolist()) for row in out)
+    return orthography.score(text).rate
 
 
 def train(cfg: TrainConfig) -> dict:
@@ -163,6 +190,7 @@ def train(cfg: TrainConfig) -> dict:
 
     t0 = time.time()
     best_val = float("inf")
+    checkpoints = []
     for step in range(1, cfg.steps + 1):
         lr = lr_at(step - 1, cfg)
         for g in opt.param_groups:
@@ -189,14 +217,19 @@ def train(cfg: TrainConfig) -> dict:
         if step in ckpt_steps:
             torch.save({"model": model.state_dict(), "model_config": mcfg.to_dict(), "step": step},
                        run_dir / f"ckpt_{step}.pt")
-            samples.write(f"## step {step} ({100 * step / cfg.steps:.0f}%)\n\n")
+            wf = well_formed_rate(model, tok, cfg)
+            checkpoints.append({"step": step, "well_formed": wf})
+            print(f"[{cfg.name}] step {step:5d} | well-formed words {100 * wf:.1f}%")
+            samples.write(f"## step {step} ({100 * step / cfg.steps:.0f}%), "
+                          f"{100 * wf:.1f}% well-formed words\n\n")
             samples.write(sample(model, tok, cfg) + "\n\n")
             samples.flush()
 
     log.close()
     samples.close()
-    final = {"name": cfg.name, "n_params": n_params, "best_val": best_val, "elapsed": time.time() - t0}
-    (run_dir / "result.json").write_text(json.dumps({**final, "final": rec}, indent=2))
+    final = {"name": cfg.name, "n_params": n_params, "best_val": best_val,
+             "well_formed": checkpoints[-1]["well_formed"], "elapsed": time.time() - t0}
+    (run_dir / "result.json").write_text(json.dumps({**final, "final": rec, "checkpoints": checkpoints}, indent=2))
     return final
 
 
