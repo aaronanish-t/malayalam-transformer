@@ -1,5 +1,7 @@
 # A character-level Malayalam transformer, from scratch
 
+[![tests](https://github.com/aaronanish-t/malayalam-transformer/actions/workflows/tests.yml/badge.svg)](https://github.com/aaronanish-t/malayalam-transformer/actions/workflows/tests.yml)
+
 A small GPT-style decoder trained on Malayalam Wikipedia, one Unicode code
 point at a time. No `nn.Transformer`, no `nn.MultiheadAttention`, no
 tokenizer library: the attention, the positional encodings, the tokenizer and
