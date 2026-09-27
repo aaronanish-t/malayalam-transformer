@@ -78,3 +78,20 @@ def test_sampling_does_not_disturb_training_rng():
     torch.manual_seed(0)
     T.sample(model, tok, cfg)
     assert torch.equal(torch.rand(3), expected)
+
+
+def test_eval_scores_the_same_windows_every_time(tmp_path, monkeypatch):
+    import numpy as np
+    from mltx import train as T
+
+    np.arange(500, dtype=np.uint16).__mod__(30).tofile(tmp_path / "val.bin")
+    monkeypatch.setattr(T, "DATA_DIR", tmp_path)
+    cfg = T.TrainConfig(block_size=16, tokens_per_step=64, device="cpu", dropout=0.0)
+    train_gen = torch.Generator().manual_seed(0)
+    batches = {"val": T.Batches("val", cfg, train_gen)}
+    model = small()
+    before = train_gen.get_state()
+    a = T.estimate_loss(model, batches, 3)
+    b = T.estimate_loss(model, batches, 3)
+    assert a == b
+    assert torch.equal(train_gen.get_state(), before)  # eval never touches the training stream

@@ -71,9 +71,9 @@ class Batches:
         self.cfg = cfg
         self.gen = gen
 
-    def __call__(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def __call__(self, gen: torch.Generator | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         T, B = self.cfg.block_size, self.cfg.batch_size
-        ix = torch.randint(len(self.data) - T - 1, (B,), generator=self.gen)
+        ix = torch.randint(len(self.data) - T - 1, (B,), generator=gen or self.gen)
         x = torch.stack([self.data[i:i + T] for i in ix])
         y = torch.stack([self.data[i + 1:i + 1 + T] for i in ix])
         return x.to(self.cfg.device), y.to(self.cfg.device)
@@ -87,14 +87,25 @@ def lr_at(step: int, cfg: TrainConfig) -> float:
     return cfg.lr * (cfg.min_lr_ratio + (1 - cfg.min_lr_ratio) * cosine)
 
 
+EVAL_SEED = 2024
+
+
 @torch.no_grad()
 def estimate_loss(model: Transformer, batches: dict[str, Batches], n: int) -> dict[str, float]:
+    """Mean loss over the same n windows every time it is called.
+
+    A fresh generator with a fixed seed means every eval of every run scores
+    the same windows, so curve wiggles are the model changing, not the eval
+    sample. It also keeps eval off the training generator, so the training
+    batch sequence no longer depends on how often we evaluate.
+    """
     model.eval()
     out = {}
     for split, get in batches.items():
+        gen = torch.Generator().manual_seed(EVAL_SEED)
         losses = torch.zeros(n)
         for i in range(n):
-            x, y = get()
+            x, y = get(gen)
             _, loss = model(x, y)
             losses[i] = loss.item()
         out[split] = losses.mean().item()
