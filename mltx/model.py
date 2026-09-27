@@ -47,6 +47,10 @@ class CausalSelfAttention(nn.Module):
         self.resid_drop = nn.Dropout(cfg.dropout)
         mask = torch.tril(torch.ones(cfg.block_size, cfg.block_size, dtype=torch.bool))
         self.register_buffer("mask", mask.view(1, 1, cfg.block_size, cfg.block_size), persistent=False)
+        # set record=True to keep the last attention pattern for inspection
+        # (mltx.attention); off during training so nothing is retained
+        self.record = False
+        self.last_att: torch.Tensor | None = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.shape
@@ -59,6 +63,8 @@ class CausalSelfAttention(nn.Module):
         att = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)   # (B, nh, T, T)
         att = att.masked_fill(~self.mask[:, :, :T, :T], float("-inf"))
         att = F.softmax(att, dim=-1)
+        if self.record:
+            self.last_att = att.detach()
         att = self.attn_drop(att)
         y = att @ v                                                    # (B, nh, T, hd)
         y = y.transpose(1, 2).contiguous().view(B, T, C)

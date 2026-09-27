@@ -95,3 +95,17 @@ def test_eval_scores_the_same_windows_every_time(tmp_path, monkeypatch):
     b = T.estimate_loss(model, batches, 3)
     assert a == b
     assert torch.equal(train_gen.get_state(), before)  # eval never touches the training stream
+
+
+def test_attention_recording_is_opt_in_and_causal():
+    from mltx.attention import attention_maps
+
+    model = small().eval()
+    x = torch.randint(0, 40, (1, 10))
+    model(x)
+    assert all(b.attn.last_att is None for b in model.blocks)  # nothing kept by default
+    maps = attention_maps(model, x)
+    assert len(maps) == 2 and maps[0].shape == (2, 10, 10)
+    assert torch.allclose(maps[0].sum(-1), torch.ones(2, 10))  # rows are distributions
+    assert torch.all(maps[0].triu(1) == 0)                    # no attention to the future
+    assert all(b.attn.last_att is None and not b.attn.record for b in model.blocks)

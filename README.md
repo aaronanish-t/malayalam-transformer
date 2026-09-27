@@ -57,6 +57,7 @@ python -m mltx.ablate              # the whole grid, ~6 runs
 python -m mltx.plot                # results/loss_curves.png
 python -m mltx.report              # fills the section below into this README
 python -m mltx.generate runs/baseline/ckpt_3000.pt --prompt "കേരളം "
+python -m mltx.attention runs/baseline/ckpt_3000.pt   # results/attention.png
 ```
 
 On a free Colab T4 the baseline takes a few minutes and the full grid well
@@ -105,6 +106,7 @@ mltx/
   plot.py        loss curves
   report.py      writes the results section of this README
   generate.py    sample from a checkpoint
+  attention.py   plot every head's attention over a Malayalam sentence
 tests/           shape, causality, tokenizer and overfit tests
 notebooks/       Colab notebook that runs everything
 ```
