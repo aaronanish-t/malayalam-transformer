@@ -63,3 +63,18 @@ def test_generate_extends_sequence():
     model = small().eval()
     out = model.generate(torch.zeros(1, 4, dtype=torch.long), max_new_tokens=20, top_k=5)
     assert out.shape == (1, 24)
+
+
+def test_sampling_does_not_disturb_training_rng():
+    """Sampling a checkpoint must leave the global RNG where it was."""
+    from mltx import train as T
+
+    tok = CharTokenizer.from_text("കേരളം ഭാരതത്തിലെ അദ്ദേഹം ", min_freq=0)
+    model = Transformer(ModelConfig(vocab_size=tok.vocab_size, block_size=16, n_layer=1,
+                                    n_head=1, n_embd=16, dropout=0.0))
+    cfg = T.TrainConfig(sample_tokens=5, device="cpu")
+    torch.manual_seed(0)
+    expected = torch.rand(3)
+    torch.manual_seed(0)
+    T.sample(model, tok, cfg)
+    assert torch.equal(torch.rand(3), expected)

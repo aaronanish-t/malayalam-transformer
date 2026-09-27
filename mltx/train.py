@@ -105,12 +105,18 @@ def estimate_loss(model: Transformer, batches: dict[str, Batches], n: int) -> di
 @torch.no_grad()
 def sample(model: Transformer, tok: CharTokenizer, cfg: TrainConfig) -> str:
     model.eval()
-    torch.manual_seed(cfg.seed)  # multinomial uses the global generator
+    # multinomial draws from the global RNG. Reseeding it directly would reset
+    # the dropout stream every time a checkpoint is sampled, so fork it: the
+    # samples are reproducible and training continues exactly as if we had
+    # never sampled.
+    devices = [torch.cuda.current_device()] if cfg.device == "cuda" else []
     parts = []
-    for prompt in SAMPLE_PROMPTS:
-        idx = torch.tensor([tok.encode(prompt)], device=cfg.device)
-        out = model.generate(idx, cfg.sample_tokens, temperature=0.8, top_k=40)
-        parts.append(tok.decode(out[0].tolist()))
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(cfg.seed)
+        for prompt in SAMPLE_PROMPTS:
+            idx = torch.tensor([tok.encode(prompt)], device=cfg.device)
+            out = model.generate(idx, cfg.sample_tokens, temperature=0.8, top_k=40)
+            parts.append(tok.decode(out[0].tolist()))
     model.train()
     return "\n\n---\n\n".join(parts)
 
